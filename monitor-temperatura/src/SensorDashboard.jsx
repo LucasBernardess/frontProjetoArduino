@@ -13,44 +13,11 @@ const SensorDashboard = () => {
     hum: { media: 0, status: 'Aguardando...', corStatus: '#999' }
   });
 
-  // Função para buscar dados reais do Firebase
-  const fetchSensorData = async () => {
-    try {
-      const sensorRef = ref(database, 'sensores/sala');
-      const snapshot = await get(sensorRef);
-
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        const agora = new Date();
-        const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-        const novaLeitura = {
-          hora: horaFormatada,
-          temperatura: Number(data.temperatura),
-          umidade: Number(data.umidade)
-        };
-
-        setHistorico(prev => {
-          // Mantém os últimos 10 registros
-          const novoArray = [...prev, novaLeitura].slice(-10);
-          processarDados(novoArray);
-          return novoArray;
-        });
-
-      } else {
-        console.log("Nenhum dado encontrado.");
-      }
-    } catch (error) {
-      console.error("Erro ao buscar no Firebase:", error);
-    }
-  };
-
-  // Lógica de análise de tendência
+  // Função auxiliar de processamento (Média e Status)
   const processarDados = (novoHistorico) => {
     if (novoHistorico.length < 1) return;
 
     const atual = novoHistorico[novoHistorico.length - 1];
-    // Pega o penúltimo dado. Se não existir (primeira leitura), compara com o atual.
     const anterior = novoHistorico.length > 1 ? novoHistorico[novoHistorico.length - 2] : atual;
     const qtd = novoHistorico.length;
 
@@ -58,7 +25,6 @@ const SensorDashboard = () => {
     const somaTemp = novoHistorico.reduce((acc, curr) => acc + curr.temperatura, 0);
     const mediaTemp = (somaTemp / qtd).toFixed(1);
     
-    // Calcula a diferença entre AGORA e a leitura ANTERIOR
     const diffTemp = atual.temperatura - anterior.temperatura;
     
     let statusTemp = 'Estável';
@@ -67,10 +33,10 @@ const SensorDashboard = () => {
     // Só muda status se variar mais de 5 graus
     if (diffTemp > 5.0) { 
         statusTemp = 'Esquentando Rápido'; 
-        corTemp = '#e74c3c'; // Vermelho
+        corTemp = '#e74c3c'; 
     } else if (diffTemp < -5.0) { 
         statusTemp = 'Resfriando Rápido'; 
-        corTemp = '#3498db'; // Azul
+        corTemp = '#3498db'; 
     }
 
     // --- CÁLCULO UMIDADE ---
@@ -97,14 +63,51 @@ const SensorDashboard = () => {
     });
   };
 
+  // --- EFEITO PRINCIPAL (Busca e Intervalo) ---
   useEffect(() => {
-    fetchSensorData();
+    // Definimos a função de busca AQUI DENTRO para evitar problemas de escopo
+    const fetchData = async () => {
+      try {
+        // console.log("Buscando dados no Firebase..."); // Descomente para debug
+        const sensorRef = ref(database, 'sensores/sala');
+        const snapshot = await get(sensorRef);
 
-    // Atualização a cada 30 segundos
-    const intervalo = setInterval(() => {
-      fetchSensorData();
-    }, 30000); 
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          
+          const agora = new Date();
+          const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
+          const novaLeitura = {
+            hora: horaFormatada,
+            temperatura: Number(data.temperatura),
+            umidade: Number(data.umidade)
+          };
+
+          setHistorico(prev => {
+            // Mantém os últimos 10 registros
+            const novoArray = [...prev, novaLeitura].slice(-10);
+            
+            // Chama o processamento usando o array atualizado
+            processarDados(novoArray);
+            
+            return novoArray;
+          });
+        } else {
+          console.log("Nenhum dado encontrado.");
+        }
+      } catch (error) {
+        console.error("Erro ao buscar no Firebase:", error);
+      }
+    };
+
+    // 1. Chama imediatamente ao carregar
+    fetchData();
+
+    // 2. Configura o intervalo de 10 segundos (10000ms)
+    const intervalo = setInterval(fetchData, 10000);
+
+    // 3. Limpa o intervalo ao sair da tela
     return () => clearInterval(intervalo);
   }, []);
 
@@ -149,7 +152,7 @@ const SensorDashboard = () => {
 
           <div className="stats-row">
             <div className="stat-box">
-              <span>Média </span>
+              <span>Média</span>
               <strong>{analise.temp.media}°C</strong>
             </div>
             <div className="stat-box" style={{ color: analise.temp.corStatus, borderColor: analise.temp.corStatus }}>
@@ -188,7 +191,7 @@ const SensorDashboard = () => {
 
           <div className="stats-row">
             <div className="stat-box">
-              <span>Média </span>
+              <span>Média</span>
               <strong>{analise.hum.media}%</strong>
             </div>
             <div className="stat-box" style={{ color: analise.hum.corStatus, borderColor: analise.hum.corStatus }}>
