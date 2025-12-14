@@ -1,5 +1,5 @@
 // src/SensorDashboard.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react'; // Adicionado useRef
 import { ref, get } from "firebase/database"; 
 import { database } from './firebaseConfig';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -12,6 +12,48 @@ const SensorDashboard = () => {
     temp: { media: 0, status: 'Aguardando...', corStatus: '#999' },
     hum: { media: 0, status: 'Aguardando...', corStatus: '#999' }
   });
+
+  // --- NOVO: Referência para controlar o intervalo de envio de e-mails ---
+  const ultimoEnvio = useRef(0); 
+
+  // --- NOVO: Função de Envio de Alerta ---
+  const enviarAlertaEmail = (temperaturaAtual) => {
+    const EMAIL_DESTINO = "xxlucas0404xx@gmail.com";
+    const TEMPO_COOLDOWN = 15 * 60 * 1000; // 15 minutos em milissegundos
+    const agora = Date.now();
+
+    // Verifica se já passou o tempo de espera desde o último envio
+    if (agora - ultimoEnvio.current < TEMPO_COOLDOWN) {
+        console.log("Alerta ignorado: E-mail recente já enviado.");
+        return;
+    }
+
+    // Dados para o FormSubmit
+    const dadosAlerta = {
+        _subject: `ALERTA CRÍTICO: Temperatura ${temperaturaAtual}°C`,
+        _captcha: "false",
+        _template: "table",
+        mensagem: `Atenção! A temperatura da sala atingiu ${temperaturaAtual}°C. Verifique os equipamentos imediatamente.`,
+        data_hora: new Date().toLocaleString('pt-BR')
+    };
+
+    console.log("Enviando e-mail de alerta...");
+
+    fetch(`https://formsubmit.co/ajax/${EMAIL_DESTINO}`, {
+        method: "POST",
+        headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        },
+        body: JSON.stringify(dadosAlerta)
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log("E-mail enviado com sucesso!", data);
+        ultimoEnvio.current = Date.now(); // Atualiza o horário do último envio
+    })
+    .catch(error => console.error("Erro ao enviar e-mail:", error));
+  };
 
   // Função auxiliar de processamento (Média e Status)
   const processarDados = (novoHistorico) => {
@@ -65,10 +107,8 @@ const SensorDashboard = () => {
 
   // --- EFEITO PRINCIPAL (Busca e Intervalo) ---
   useEffect(() => {
-    // Definimos a função de busca AQUI DENTRO para evitar problemas de escopo
     const fetchData = async () => {
       try {
-        // console.log("Buscando dados no Firebase..."); // Descomente para debug
         const sensorRef = ref(database, 'sensores/sala');
         const snapshot = await get(sensorRef);
 
@@ -78,19 +118,23 @@ const SensorDashboard = () => {
           const agora = new Date();
           const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
+          const tempNum = Number(data.temperatura);
+          
           const novaLeitura = {
             hora: horaFormatada,
-            temperatura: Number(data.temperatura),
+            temperatura: tempNum,
             umidade: Number(data.umidade)
           };
 
+          // --- NOVO: Checagem de Alerta ---
+          if (tempNum > 35) {
+             enviarAlertaEmail(tempNum);
+          }
+          // --------------------------------
+
           setHistorico(prev => {
-            // Mantém os últimos 10 registros
             const novoArray = [...prev, novaLeitura].slice(-10);
-            
-            // Chama o processamento usando o array atualizado
             processarDados(novoArray);
-            
             return novoArray;
           });
         } else {
@@ -101,13 +145,8 @@ const SensorDashboard = () => {
       }
     };
 
-    // 1. Chama imediatamente ao carregar
     fetchData();
-
-    // 2. Configura o intervalo de 10 segundos (10000ms)
     const intervalo = setInterval(fetchData, 10000);
-
-    // 3. Limpa o intervalo ao sair da tela
     return () => clearInterval(intervalo);
   }, []);
 
@@ -125,7 +164,6 @@ const SensorDashboard = () => {
       </header>
 
       <div className="main-grid">
-        
         {/* Painel Temperatura */}
         <div className="panel temp-panel">
           <div className="panel-header">
@@ -140,10 +178,7 @@ const SensorDashboard = () => {
               <LineChart data={historico}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
                 <XAxis dataKey="hora" tick={{fontSize: 10}} />
-                
-                {/* Eixo Y fixo 0 a 50 */}
                 <YAxis domain={[0, 50]} allowDataOverflow={true} />
-                
                 <Tooltip />
                 <Line isAnimationActive={false} type="monotone" dataKey="temperatura" stroke="#ff6b6b" strokeWidth={3} dot={{r: 4}} />
               </LineChart>
@@ -179,10 +214,7 @@ const SensorDashboard = () => {
               <LineChart data={historico}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
                 <XAxis dataKey="hora" tick={{fontSize: 10}} />
-                
-                {/* Eixo Y fixo 0 a 80 */}
                 <YAxis domain={[0, 80]} allowDataOverflow={true} />
-                
                 <Tooltip />
                 <Line isAnimationActive={false} type="monotone" dataKey="umidade" stroke="#4ecdc4" strokeWidth={3} dot={{r: 4}} />
               </LineChart>
